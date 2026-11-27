@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NTFS Analysis: Byte-by-Byte Guide</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--card:#f4f4f0;--bd:#d8d8d0;--ac:#0f6e56;
+--c0:#ffb4a2;--c1:#ffd98a;--c2:#b8e0a0;--c3:#9fd3e6;--c4:#c9b6f0;--c5:#f5a9d0;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17181a;--fg:#ececec;--mut:#9a9a9a;--card:#232528;--bd:#3a3d41;--ac:#5dcaa5;
+--c0:#8a3d2c;--c1:#7a5f1a;--c2:#3b6a26;--c3:#1f5a70;--c4:#53388a;--c5:#8a2f5f}}
+:root[data-theme="dark"]{--bg:#17181a;--fg:#ececec;--mut:#9a9a9a;--card:#232528;--bd:#3a3d41;--ac:#5dcaa5;
+--c0:#8a3d2c;--c1:#7a5f1a;--c2:#3b6a26;--c3:#1f5a70;--c4:#53388a;--c5:#8a2f5f}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0}h2{font-size:17px;margin:18px 0 6px}h3{font-size:15px;margin:14px 0 4px}
+p{margin:6px 0}.mut{color:var(--mut);font-size:13px}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+nav button,.btn{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+nav button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+nav button:focus-visible,.btn:focus-visible,input:focus-visible{outline:2px solid var(--ac)}
+section{display:none}section.on{display:block}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin:10px 0}
+.hex{font:13px/1.9 ui-monospace,Menlo,Consolas,monospace;overflow-x:auto;white-space:pre}
+.hex .off{color:var(--mut);margin-right:10px}
+.b{padding:2px 1px;border-radius:3px;cursor:pointer;margin-right:2px;color:var(--fg)}
+.b.sel{outline:2px solid var(--fg)}
+.asc{margin-left:10px;color:var(--mut)}
+.info{min-height:64px;border-left:4px solid var(--ac)}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px;min-width:480px}
+td,th{border-bottom:1px solid var(--bd);padding:5px 7px;text-align:left;vertical-align:top}
+tr.f{cursor:pointer}tr.f.sel{background:var(--card);outline:2px solid var(--ac)}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.bar{display:flex;height:46px;border:1px solid var(--bd);border-radius:8px;overflow:hidden;font-size:12px;margin:8px 0}
+.bar div{display:flex;align-items:center;justify-content:center;text-align:center;padding:0 4px;overflow:hidden;color:var(--fg)}
+input{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;width:100%;max-width:340px}
+code,pre{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}pre{overflow-x:auto;margin:6px 0;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:8px}
+.ok{color:#1d9e75;font-weight:600}.bad{color:#e24b4a;font-weight:600}
+ol.st{padding-left:20px}ol.st li{margin:8px 0}.cells{display:flex;flex-wrap:wrap;gap:2px;margin:8px 0}.cells span{width:24px;text-align:center;font:11px ui-monospace,monospace;padding:3px 0;border-radius:3px;border:1px solid var(--bd)}.cells .u1{background:var(--ac);color:#fff;border-color:var(--ac)}.cells .gap{width:10px;border:0}ul.l{padding-left:20px;margin:6px 0}ul.l li{margin:5px 0}#wm{position:fixed;inset:0;overflow:hidden;pointer-events:none;user-select:none;z-index:50}#wm div{position:absolute;left:-50%;top:-50%;width:200%;height:200%;transform:rotate(-30deg);display:flex;flex-wrap:wrap;align-content:flex-start;gap:70px 60px;font:600 18px system-ui,sans-serif;color:var(--fg);opacity:.07}
+</style></head><body><div id="wm" aria-hidden="true"><div></div></div><main>
+<h1>NTFS file system: understand it byte by byte</h1>
+<p class="mut">The hex samples below are generated on this page (small, simplified examples that follow the real NTFS layouts). Click any byte or table row to see the field name, offset and value.</p>
+<nav id="nav"></nav>
+
+<section data-t="1. NTFS basics">
+<h2>What NTFS is</h2>
+<p>NTFS (New Technology File System) is the default file system of Windows since Windows NT 3.1 (1993). Think of a file system as a library: the data are the books, and the file system is the catalogue that says where each book is.</p>
+<p>NTFS is a <b>journaling</b> file system. It writes changes to a log before applying them, so the system can recover after a crash or power failure, and an investigator gets a history of file activity.</p>
+<div class="card"><b>Key features</b>
+<p>• Detailed metadata (several timestamps per file) • Journaling ($LogFile and $UsnJrnl) • Permissions (ACLs) and encryption (EFS) • Compression • Very large files and volumes • Better resilience than FAT32</p></div>
+<div class="card tw"><table><tr><th>Feature</th><th>NTFS</th><th>FAT32</th><th>exFAT</th></tr>
+<tr><td>Max file size</td><td>256 TB</td><td>4 GB</td><td>16 EB</td></tr>
+<tr><td>Crash recovery (journal)</td><td>Yes</td><td>No</td><td>No</td></tr>
+<tr><td>Permissions / encryption</td><td>Yes</td><td>No</td><td>No</td></tr>
+<tr><td>Typical use</td><td>Windows system drives</td><td>Old devices, small USB sticks</td><td>Flash drives, SD cards</td></tr></table></div>
+<h2>Volume layout</h2>
+<div class="bar" id="bar0"></div>
+<p class="mut">Simplified. The $MFT lives in a reserved zone near the start; $MFTMirr is stored separately so a damaged MFT can be cross-checked.</p>
+<div class="card"><b>Three things to remember before reading any hex</b>
+<p>• NTFS stores numbers <b>little-endian</b>: 0x1000 as a 4-byte value is <code>00 10 00 00</code>.<br>
+• Times are <b>FILETIME</b>: 100-nanosecond ticks since 1 January 1601 (UTC).<br>
+• Names are <b>UTF-16LE</b>: “A” = <code>41 00</code>.<br>
+• <b>Everything is a file</b>, even the file system’s own metadata ($MFT, $LogFile…). That is why we can export and analyze them.</p></div>
+<h2>Vocabulary you need first</h2>
+<div class="card tw"><table><tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>Sector</td><td>Smallest unit the disk hardware reads or writes: 512 bytes (4096 on newer drives).</td></tr>
+<tr><td>Cluster</td><td>Smallest unit NTFS gives to a file: a power-of-two group of sectors, 4 KB by default. Even a 1-byte file occupies one cluster.</td></tr>
+<tr><td>LCN (logical cluster number)</td><td>Cluster number counted from the start of the volume. LCN × cluster size = byte offset on the volume.</td></tr>
+<tr><td>VCN (virtual cluster number)</td><td>Cluster number counted from the start of a file. Data runs translate VCN → LCN.</td></tr>
+<tr><td>MFT entry / record</td><td>One 1024-byte slot in the $MFT that describes one file or folder. The entry number is its position in the table.</td></tr>
+<tr><td>File reference</td><td>8 bytes: 48-bit entry number + 16-bit sequence number. The sequence keeps a reference unique even after the entry is reused.</td></tr>
+<tr><td>Attribute</td><td>A typed block of data inside a record: name, times, content, index…</td></tr>
+<tr><td>Resident / non-resident</td><td>Stored inside the MFT record / stored in clusters elsewhere on the volume.</td></tr>
+<tr><td>Partition vs volume</td><td>A partition is a slice of the disk (described by MBR or GPT). The volume is the NTFS file system formatted inside it.</td></tr></table></div>
+<h2>How NTFS finds <code>C:\Users\Ravi\salary.xlsx</code></h2>
+<ol class="st"><li>Read the boot sector to learn the cluster size, the record size and where the $MFT starts.</li>
+<li>Read MFT entry 5, the root folder. Its index ($I30) lists the names inside it.</li>
+<li>Look up <code>Users</code> in that index. The entry gives a file reference (for example entry 311). Read MFT entry 311 and open its index.</li>
+<li>Repeat for <code>Ravi</code>, then <code>salary.xlsx</code>.</li>
+<li>Read the file’s record. If its $DATA attribute is resident, the content is right there. Otherwise decode the data runs to get LCNs, multiply by the cluster size and read those clusters.</li></ol>
+<p>This path walk is why several artifacts matter: the index holds names, the MFT holds metadata and locations, and the clusters hold content. Evidence can survive in any one of them after the others are gone.</p>
+<h2>Slack space</h2>
+<div class="card tw"><table><tr><th>Type</th><th>What it is</th><th>What it may contain</th></tr>
+<tr><td>File slack</td><td>Space between the end of a file’s data and the end of its last cluster</td><td>Leftovers of an earlier file that used the same clusters</td></tr>
+<tr><td>Unallocated space</td><td>Clusters marked free in $Bitmap</td><td>Content of deleted files that has not been overwritten yet</td></tr>
+<tr><td>MFT slack</td><td>Unused bytes in a 1024-byte record after the end marker</td><td>Remnants of earlier attributes, sometimes an older file name</td></tr>
+<tr><td>Index slack</td><td>Unused part of a $I30 buffer</td><td>Names and timestamps of deleted or renamed files</td></tr></table></div>
+<p class="mut">Example: a 5,000-byte file on 4 KB clusters takes 2 clusters (8,192 bytes), so 3,192 bytes are file slack.</p>
+</section>
+
+<section data-t="2. Components">
+<h2>Metafiles (system files)</h2>
+<p>The first 16 MFT entries are reserved for NTFS’s own metadata files. All names start with <code>$</code>.</p>
+<div class="card tw"><table><tr><th>Entry</th><th>Name</th><th>Purpose</th><th>Forensic value</th></tr>
+<tr><td>0</td><td>$MFT</td><td>The Master File Table itself</td><td>Every file record, deleted ones included</td></tr>
+<tr><td>1</td><td>$MFTMirr</td><td>Backup of the first MFT records</td><td>Cross-check or recover a damaged MFT</td></tr>
+<tr><td>2</td><td>$LogFile</td><td>Transaction log for crash recovery</td><td>Recent metadata operations</td></tr>
+<tr><td>3</td><td>$Volume</td><td>Volume name and version</td><td>Volume identity</td></tr>
+<tr><td>4</td><td>$AttrDef</td><td>Attribute type definitions</td><td>Reference only</td></tr>
+<tr><td>5</td><td>. (root)</td><td>Root directory</td><td>Starting point of the folder tree</td></tr>
+<tr><td>6</td><td>$Bitmap</td><td>Which clusters are used or free</td><td>Recent allocations and deletions</td></tr>
+<tr><td>7</td><td>$Boot</td><td>Boot sector and bootstrap code</td><td>Tampering, rootkits</td></tr>
+<tr><td>8</td><td>$BadClus</td><td>List of bad clusters</td><td>Data can be hidden in fake bad clusters</td></tr>
+<tr><td>9</td><td>$Secure</td><td>Security descriptors</td><td>Permissions history</td></tr>
+<tr><td>10</td><td>$UpCase</td><td>Uppercase mapping table</td><td>Reference only</td></tr>
+<tr><td>11</td><td>$Extend</td><td>Folder with $UsnJrnl, $ObjId, $Quota, $Reparse</td><td>The change journal lives here</td></tr></table></div>
+<h3>Resident vs non-resident data</h3>
+<p><b>Resident:</b> a small file’s content is stored inside its MFT record (in the $DATA attribute). Even if the clusters are overwritten, a small file or script can still be recovered from the MFT. <b>Non-resident:</b> a larger file; the record only holds “data runs” pointing to clusters on disk.</p>
+<h3>Alternate Data Streams (ADS)</h3>
+<p>A file can hold more than one data stream. The main stream is the normal content; extra named streams can hide content without changing the visible file size. Malware uses this. To list streams: <code>dir /r</code> or <code>Get-Item * -Stream *</code>.</p>
+<h3>Reserved entries</h3>
+<p>Entries 0–11 are the metafiles above, 12–23 are reserved, and ordinary files start at entry 24. So entry 5 is always the root folder, and a low entry number such as 7 will never be a normal user file.</p>
+<h3>What is inside the special metafiles</h3>
+<div class="card tw"><table><tr><th>Metafile</th><th>Contents</th><th>Why you care</th></tr>
+<tr><td>$Secure</td><td>$SDS (security descriptors), plus indexes $SDH and $SII</td><td>Owner and ACL of a file; many files share one entry through a Security ID</td></tr>
+<tr><td>$Bitmap</td><td>One bit per cluster, 1 = allocated</td><td>Shows which clusters are free (see the Deletion tab)</td></tr>
+<tr><td>$Boot</td><td>Boot sector and bootstrap code; a copy is kept in the last sector</td><td>Boot-level malware, volume geometry</td></tr>
+<tr><td>$Extend\$UsnJrnl</td><td>$J (change records) and $Max (settings)</td><td>Change history of the volume</td></tr>
+<tr><td>$Extend\$ObjId</td><td>Index of object IDs used by link tracking</td><td>Helps follow shortcuts to moved files</td></tr>
+<tr><td>$Extend\$Quota</td><td>Per-user disk quotas</td><td>Which user owns how much data</td></tr>
+<tr><td>$Extend\$Reparse</td><td>Index of reparse points (symlinks, junctions, cloud placeholders)</td><td>Redirection tricks</td></tr></table></div>
+</section>
+
+<section data-t="3. Boot sector">
+<h2>Partition Boot Sector (first 84 bytes)</h2>
+<p>The first sector of an NTFS volume describes the geometry and tells the OS where the $MFT starts. Real sectors continue with bootstrap code and end with <code>55 AA</code> at offset 0x1FE.</p>
+<div class="card hex" id="hxb"></div>
+<div class="card info" id="inb">Click on any byte.</div>
+<div class="card" id="calc"></div>
+<div class="card"><b>How to read this sector, step by step</b>
+<p>1. Confirm the OEM ID says NTFS and that the last two bytes of the sector are <code>55 AA</code>.<br>2. Cluster size = bytes per sector × sectors per cluster.<br>3. First MFT record = $MFT start cluster × cluster size.<br>4. Record size comes from “clusters per MFT record”: a negative byte means 2 to the power of its absolute value.<br>5. If this sector is damaged, NTFS keeps a backup copy in the last sector of the volume, so recovery tools can still find the geometry.</p></div>
+<div class="card"><b>Forensic checks</b>
+<p>Compare the boot sector with its backup copy (a mismatch means damage or tampering). Check that the hidden-sectors value equals the partition’s start in the MBR or GPT. Inspect the bootstrap code for anything unusual, since bootkits replace it. Compare total sectors with the partition size.</p></div>
+<div class="card tw"><table id="tbb"></table></div>
+</section>
+
+<section data-t="4. MFT record">
+<h2>One MFT record, byte by byte</h2>
+<p>Every file has a record of 1024 bytes: a header, then attributes, then an end marker (<code>FF FF FF FF</code>). This sample is a small file <code>salary.xlsx</code> whose content is resident. It shows the first 312 used bytes; the rest of the 1024 bytes is zeros. (Real records also carry fixup values at bytes 0x1FE and 0x3FE, omitted here.)</p>
+<div class="bar" id="bar1"></div>
+<div class="card hex" id="hxm"></div>
+<div class="card info" id="inm">Click on any byte.</div>
+<div class="card"><b>Record header flags decoder</b> (offset 0x16): hex value <input id="fl" value="0001" style="width:100px"> <span id="flo"></span>
+<p class="mut">Deleting a file only clears the in-use bit. The record and often the data stay until they are reused.</p></div>
+<div class="card"><b>$STANDARD_INFORMATION flags decoder</b> (attribute content offset 32)
+<p>Hex value: <input id="sf" value="00000020" style="width:130px"></p>
+<div id="sfc"></div><p id="sfo"></p>
+<p class="mut">Type a value or tick the boxes. This is a different field from the record header flags above: those say whether the record is in use, these describe the file itself.</p></div>
+<div class="card tw"><table id="tbm"></table></div>
+<h3>Attributes you will meet</h3>
+<div class="card tw"><table><tr><th>Type</th><th>ID</th><th>Holds</th></tr>
+<tr><td>$STANDARD_INFORMATION</td><td>0x10</td><td>Timestamps, DOS flags (hidden, system…)</td></tr>
+<tr><td>$FILE_NAME</td><td>0x30</td><td>Name, parent folder reference, second set of timestamps</td></tr>
+<tr><td>$DATA</td><td>0x80</td><td>Content, or pointers to it. Extra named $DATA attributes are ADS</td></tr>
+<tr><td>$INDEX_ROOT / $INDEX_ALLOCATION / $BITMAP</td><td>0x90 / 0xA0 / 0xB0</td><td>Directory index ($I30)</td></tr></table></div>
+<h3>Useful MFTECmd columns</h3>
+<div class="card tw"><table><tr><th>Column</th><th>Why it matters</th></tr>
+<tr><td>Entry Number / Sequence Number</td><td>Identify the file; the sequence increases when the record is reused</td></tr>
+<tr><td>Parent Entry Number</td><td>Rebuild the folder path</td></tr>
+<tr><td>In Use</td><td>False = deleted</td></tr>
+<tr><td>Created0x10 / Created0x30</td><td>$SI vs $FN creation time (timestomp check)</td></tr>
+<tr><td>Logical / Physical size</td><td>Real data size vs allocated space</td></tr>
+<tr><td>Flags (Hidden, System…)</td><td>Malware often hides itself</td></tr></table></div>
+<h3>Fixups: why sector ends look odd</h3>
+<p>A 1024-byte record spans two 512-byte sectors. To detect half-written (torn) records, NTFS overwrites the last 2 bytes of every sector with the record’s <b>update sequence number</b> (0x0003 in our sample) and stores the original bytes in the update sequence array at offset 0x30. A parser must put the saved bytes back. If a sector end does not match the number, the record is corrupt. MFTECmd does this for you; when reading raw hex, remember that bytes 0x1FE–0x1FF and 0x3FE–0x3FF are not the real data.</p>
+<h3>Life of a record</h3>
+<div class="card tw"><table><tr><th>Event</th><th>What changes in the MFT</th></tr>
+<tr><td>File created</td><td>A free entry is chosen, flags = 0x01, attributes are written, and the name is added to the parent’s $I30.</td></tr>
+<tr><td>File deleted</td><td>Flags become 0x00 (0x02 for a folder), the name leaves the parent index, the clusters are cleared in $Bitmap. Attributes and data are normally left untouched.</td></tr>
+<tr><td>Entry reused</td><td>A new file takes the entry and overwrites the old attributes; the sequence number goes up. The old metadata is gone, so look in $UsnJrnl, $LogFile and $I30 slack.</td></tr>
+<tr><td>Folder deleted</td><td>The folder’s entry is freed, but its children keep their own records pointing to a parent that no longer exists (orphan files).</td></tr></table></div>
+<h3>File references</h3>
+<p><code>2A 00 00 00 00 00 01 00</code> = entry 0x2A (42) with sequence 1. If the journal and the MFT show the same entry number with different sequence numbers, they describe two different files.</p>
+<h3>$STANDARD_INFORMATION data structure</h3>
+<p>Byte ranges are counted from the start of the attribute <b>content</b> (after the 24-byte resident header). In the sample above the content starts at 0x50, so the last column shows where each field sits in the hex dump.</p>
+<div class="card tw"><table><tr><th>Byte range</th><th>Size</th><th>Description</th><th>In sample</th></tr>
+<tr><td>0–7</td><td>8</td><td>Creation time (Born)</td><td>0x50</td></tr>
+<tr><td>8–15</td><td>8</td><td>File altered time (Modified)</td><td>0x58</td></tr>
+<tr><td>16–23</td><td>8</td><td>MFT altered time (Changed)</td><td>0x60</td></tr>
+<tr><td>24–31</td><td>8</td><td>File accessed time (Accessed)</td><td>0x68</td></tr>
+<tr><td>32–35</td><td>4</td><td>Flags (see the flags table below)</td><td>0x70</td></tr>
+<tr><td>36–39</td><td>4</td><td>Maximum number of versions</td><td>0x74</td></tr>
+<tr><td>40–43</td><td>4</td><td>Version number</td><td>0x78</td></tr>
+<tr><td>44–47</td><td>4</td><td>Class ID</td><td>0x7C</td></tr>
+<tr><td>48–51</td><td>4</td><td>Owner ID (NTFS 3.0+)</td><td>0x80</td></tr>
+<tr><td>52–55</td><td>4</td><td>Security ID (NTFS 3.0+)</td><td>0x84</td></tr>
+<tr><td>56–63</td><td>8</td><td>Quota charged (NTFS 3.0+)</td><td>0x88</td></tr>
+<tr><td>64–71</td><td>8</td><td>Update sequence number, USN (NTFS 3.0+)</td><td>0x90</td></tr></table></div>
+<p class="mut">The four times are FILETIME values. Old NTFS 1.x records stop after the Class ID (48 bytes); the four 3.0+ fields make the content 72 bytes, as in our sample.</p>
+<h3>$STANDARD_INFORMATION flags</h3>
+<p>The 4-byte flags field is a bit mask. Several flags can be set at once, so you add (OR) the values: Hidden + System + Archive = 0x0002 + 0x0004 + 0x0020 = <code>0x0026</code>.</p>
+<div class="card tw"><table><tr><th>Flag value</th><th>Description</th><th>What it means when investigating</th></tr>
+<tr><td>0x0001</td><td>Read only</td><td>Normal programs cannot write to the file</td></tr>
+<tr><td>0x0002</td><td>Hidden</td><td>Not shown by default; malware often sets it</td></tr>
+<tr><td>0x0004</td><td>System</td><td>Operating-system file; usually seen together with Hidden</td></tr>
+<tr><td>0x0020</td><td>Archive</td><td>Set when a file is created or changed; very common on ordinary files</td></tr>
+<tr><td>0x0040</td><td>Device</td><td>Reserved for system use</td></tr>
+<tr><td>0x0080</td><td>Normal</td><td>No other attributes set (valid on its own)</td></tr>
+<tr><td>0x0100</td><td>Temporary</td><td>Short-lived storage, for example temp files</td></tr>
+<tr><td>0x0200</td><td>Sparse file</td><td>Has holes that read back as zeros</td></tr>
+<tr><td>0x0400</td><td>Reparse point</td><td>Symlink, junction, mount point or cloud placeholder ($REPARSE_POINT)</td></tr>
+<tr><td>0x0800</td><td>Compressed</td><td>NTFS compression is on</td></tr>
+<tr><td>0x1000</td><td>Offline</td><td>Content was moved to offline storage</td></tr>
+<tr><td>0x2000</td><td>Content is not being indexed for faster searches</td><td>Excluded from Windows search indexing</td></tr>
+<tr><td>0x4000</td><td>Encrypted</td><td>EFS encryption: the content cannot be read without the key</td></tr></table></div>
+<p class="mut">None of these flags says “folder”. Whether a record is a directory comes from the record header flags (0x02 at offset 0x16) and from the directory bit in $FILE_NAME.</p>
+<p>Number of records in the table = size of $MFT ÷ 1024. The MFT does not shrink, so a big $MFT can hold thousands of old deleted records.</p>
+</section>
+
+<section data-t="5. Attributes & data runs">
+<h2>Every attribute type</h2>
+<p>Attributes are stored inside a record in ascending type order. Resident attributes have a 24-byte header, non-resident ones a 64-byte header. Both start with the type, the total length and the resident flag.</p>
+<div class="card tw"><table><tr><th>Type identifier</th><th>Name</th><th>Description</th></tr>
+<tr><td>16 (0x10)</td><td><code>$STANDARD_INFORMATION</code></td><td>General information, such as flags; the last accessed, written, and created times; and the owner and security ID.</td></tr>
+<tr><td>32 (0x20)</td><td><code>$ATTRIBUTE_LIST</code></td><td>List where other attributes for file can be found.</td></tr>
+<tr><td>48 (0x30)</td><td><code>$FILE_NAME</code></td><td>File name, in Unicode, and the last accessed, written, and created times.</td></tr>
+<tr><td>64 (0x40)</td><td><code>$VOLUME_VERSION</code></td><td>Volume information. Exists only in version 1.2 (Windows NT).</td></tr>
+<tr><td>64 (0x40)</td><td><code>$OBJECT_ID</code></td><td>A 16-byte unique identifier for the file or directory. Exists only in versions 3.0+ and after (Windows 2000+).</td></tr>
+<tr><td>80 (0x50)</td><td><code>$SECURITY_DESCRIPTOR</code></td><td>The access control and security properties of the file.</td></tr>
+<tr><td>96 (0x60)</td><td><code>$VOLUME_NAME</code></td><td>Volume name.</td></tr>
+<tr><td>112 (0x70)</td><td><code>$VOLUME_INFORMATION</code></td><td>File system version and other flags.</td></tr>
+<tr><td>128 (0x80)</td><td><code>$DATA</code></td><td>File contents.</td></tr>
+<tr><td>144 (0x90)</td><td><code>$INDEX_ROOT</code></td><td>Root node of an index tree.</td></tr>
+<tr><td>160 (0xA0)</td><td><code>$INDEX_ALLOCATION</code></td><td>Nodes of an index tree rooted in $INDEX_ROOT attribute.</td></tr>
+<tr><td>176 (0xB0)</td><td><code>$BITMAP</code></td><td>A bitmap for the $MFT file and for indexes.</td></tr>
+<tr><td>192 (0xC0)</td><td><code>$SYMBOLIC_LINK</code></td><td>Soft link information. Exists only in version 1.2 (Windows NT).</td></tr>
+<tr><td>192 (0xC0)</td><td><code>$REPARSE_POINT</code></td><td>Contains data about a reparse point, which is used as a soft link in version 3.0+ (Windows 2000+).</td></tr>
+<tr><td>208 (0xD0)</td><td><code>$EA_INFORMATION</code></td><td>Used for backward compatibility with OS/2 applications (HPFS).</td></tr>
+<tr><td>224 (0xE0)</td><td><code>$EA</code></td><td>Used for backward compatibility with OS/2 applications (HPFS).</td></tr>
+<tr><td>256 (0x100)</td><td><code>$LOGGED_UTILITY_STREAM</code></td><td>Contains keys and information about encrypted attributes in version 3.0+ (Windows 2000+).</td></tr></table></div>
+<p class="mut">The type identifier is shown in decimal, with the hex value (as you see it in a hex dump) in brackets. Two identifiers were reused: 64 was $VOLUME_VERSION in NTFS 1.2 and became $OBJECT_ID in 3.0+, and 192 was $SYMBOLIC_LINK before it became $REPARSE_POINT.</p>
+<h2>Resident or non-resident?</h2>
+<p>If the content fits into what remains of the 1024-byte record (roughly 700 bytes or less), $DATA is resident. Larger content becomes non-resident: the record only keeps a <b>run list</b> that tells where the clusters are. A file can switch from resident to non-resident when it grows, and the old resident bytes may linger as slack.</p>
+<h2>Non-resident $DATA, byte by byte</h2>
+<p>This sample describes a 30,517-byte file stored in 8 clusters that are split into two fragments.</p>
+<div class="card hex" id="hxn"></div>
+<div class="card info" id="inn">Click on any byte.</div>
+<div class="card"><b>Data run decoder</b>
+<p>Run list (hex): <input id="dr" value="21 05 10 20 11 03 F0 00" style="max-width:380px"></p><p id="dro"></p>
+<p class="mut">Assumes 4096-byte clusters. Each run starts with one header byte: the low nibble is the number of bytes that hold the run length (in clusters), the high nibble is the number of bytes that hold the start cluster. The start is a <b>signed offset from the previous run</b> (the first run is relative to 0), so a fragment that sits earlier on disk has a negative offset: <code>F0</code> = −16. A header byte of 0 ends the list. An offset size of 0 means a sparse run (no clusters).</p></div>
+<div class="card"><b>Sizes explained</b><p>Allocated size 32,768 = 8 clusters × 4096. Real size 30,517 is what Explorer shows. The difference, 2,251 bytes, is file slack inside the last cluster. Initialized size is how many bytes were really written (sparse or pre-allocated files can have a smaller value).</p></div>
+<div class="card tw"><table id="tbn"></table></div>
+<h2>When one record is not enough</h2>
+<p>Files with many fragments, many streams or many hard links can overflow the record. NTFS then adds an <b>$ATTRIBUTE_LIST</b> that points to extension records; each extension’s “base record reference” (header offset 0x20) points back to the base record. Tools that ignore this show incomplete files.</p>
+<h2>Alternate data streams (ADS)</h2>
+<p>An ADS is simply a second $DATA attribute that has a <b>name</b> (name length above 0). Explorer shows only the unnamed stream’s size, so extra streams are easy to miss. The most common legitimate one is <code>Zone.Identifier</code>, added when a file is downloaded (Mark of the Web):</p>
+<pre>invoice.pdf:Zone.Identifier
+[ZoneTransfer]
+ZoneId=3
+ReferrerUrl=https://example.com/downloads
+HostUrl=https://example.com/files/invoice.pdf</pre>
+<p>ZoneId 3 means Internet (0 local, 1 intranet, 2 trusted, 4 restricted). It proves a file came from outside and often tells you the URL. MFTECmd shows it in the ZoneIdContents column. Malware can hide payloads in named streams, so list them with <code>dir /r</code> or <code>Get-Item * -Stream *</code>.</p>
+<h2>Compressed, sparse and encrypted data</h2>
+<p>Attribute flags 0x0001 (compressed), 0x8000 (sparse) and 0x4000 (encrypted, EFS) change how the clusters must be read. Compressed files have a compression unit size above 0 in the non-resident header; sparse files contain runs with no clusters that read back as zeros; encrypted content cannot be read without the key.</p>
+</section>
+
+<section data-t="6. Timestamps">
+<h2>MACB and the two timestamp sets</h2>
+<div class="card tw"><table><tr><th>Letter</th><th>Meaning</th></tr>
+<tr><td>M</td><td>Modified: content last changed</td></tr><tr><td>A</td><td>Accessed: last read or opened</td></tr>
+<tr><td>C</td><td>Changed: the MFT record itself last changed</td></tr><tr><td>B</td><td>Born: file created</td></tr></table></div>
+<p>NTFS keeps two sets: <b>$STANDARD_INFORMATION</b> (shown by Explorer; user-level tools can change it) and <b>$FILE_NAME</b> (maintained by the kernel; much harder to change). Attackers alter $SI to make a file look old. This is <b>timestomping</b>.</p>
+<h3>Analysis of the sample record from the MFT tab</h3>
+<div class="card tw"><table id="cmp"></table><p id="verdict"></p>
+<p class="mut">Many timestomp tools cannot set the “MFT changed” time, so it can reveal when the tampering happened.</p></div>
+<div class="card"><b>FILETIME converter</b>
+<p>8 bytes (little-endian): <input id="fb" style="max-width:300px"></p>
+<p>Date (UTC): <input id="fd" style="max-width:220px"></p>
+<p class="mut">FILETIME = number of 100 ns ticks since 1601-01-01 UTC. Edit either box.</p></div>
+<p>Every file therefore has <b>8 timestamps in its own record</b> (4 in $SI, 4 in $FN), plus copies in the parent’s $I30 and entries in the journal. NTFS stores UTC; Explorer converts to local time, so always convert before comparing with other evidence.</p>
+<h2>How Windows updates the timestamps</h2>
+<div class="card tw"><table><tr><th>Action</th><th>$STANDARD_INFORMATION</th><th>$FILE_NAME</th></tr>
+<tr><td>Create a file</td><td>All four set to now</td><td>All four set to now</td></tr>
+<tr><td>Change content</td><td>Modified and MFT changed updated</td><td>Usually not updated</td></tr>
+<tr><td>Read or open</td><td>Accessed may update (Windows can delay or switch off last-access updates)</td><td>Not updated</td></tr>
+<tr><td>Copy a file</td><td>The new file gets Created = copy time; Modified stays as the source’s</td><td>All set to copy time</td></tr>
+<tr><td>Rename</td><td>MFT changed updated</td><td>Usually updated</td></tr>
+<tr><td>Move inside the same volume</td><td>Created and Modified kept, MFT changed updated</td><td>Usually updated</td></tr>
+<tr><td>Move to another volume</td><td>Behaves like copy + delete</td><td>New record</td></tr></table></div>
+<p class="mut">Behaviour varies a little between Windows versions and settings, so confirm important findings on a test machine. A useful result of this table: a copied file can legitimately have Modified earlier than Created.</p>
+<h2>Timestomp detection checklist</h2>
+<ul class="l"><li><b>$SI Created earlier than $FN Created.</b> The strongest simple indicator, because ordinary tools cannot change $FN.</li>
+<li><b>Zero sub-second ticks.</b> Real times have a random 100-ns part; many forging tools write whole seconds. Use the checker below. It is a hint, not proof (some sources also produce whole seconds).</li>
+<li><b>MFT changed time that does not fit.</b> Many tools cannot set it, so it may show the real moment of tampering.</li>
+<li><b>Neighbour check.</b> Entries are usually allocated in order, so a file whose entry number sits among files from 2026 but claims 2021 is odd (entries can be reused, so use it as a pointer only).</li>
+<li><b>Impossible times.</b> Dates before the parent folder, the user profile or the Windows install existed.</li>
+<li><b>Corroborate.</b> Compare with $UsnJrnl, $LogFile, $I30 copies, Prefetch, Amcache and event logs. A forged time has to fool all of them.</li></ul>
+<div class="card"><b>Sub-second checker</b>
+<p>8 bytes (little-endian): <input id="sb" style="max-width:300px"></p><p id="sbo"></p></div>
+</section>
+
+<section data-t="7. Journaling">
+<h2>Journaling: $LogFile vs $UsnJrnl</h2>
+<div class="card tw"><table><tr><th></th><th>$LogFile</th><th>$UsnJrnl ($J stream)</th></tr>
+<tr><td>Location</td><td>Volume root</td><td>$Extend\$UsnJrnl:$J</td></tr>
+<tr><td>Records</td><td>Low-level metadata transactions</td><td>High-level changes: create, delete, rename, overwrite</td></tr>
+<tr><td>Purpose</td><td>Crash recovery (replay)</td><td>Change history for applications and investigators</td></tr>
+<tr><td>Retention</td><td>Short (wraps quickly)</td><td>Longer, size set by $Max</td></tr></table></div>
+<h2>One USN record (version 2), byte by byte</h2>
+<p>This sample records the deletion of <code>salary.xlsx</code>.</p>
+<div class="card hex" id="hxu"></div>
+<div class="card info" id="inu">Click on any byte.</div>
+<div class="card"><b>Reason decoder</b>: hex value <input id="rs" value="80000200" style="width:130px"> <p id="rso"></p>
+<p class="mut">The MFT tells you what existed when the image was taken. The journal tells you what happened before.</p></div>
+<div class="card tw"><table id="tbu"></table></div>
+<h2>Reading journal patterns</h2>
+<div class="card tw"><table><tr><th>User action</th><th>Typical reasons, in order</th></tr>
+<tr><td>Create a file</td><td>FILE_CREATE → DATA_EXTEND → CLOSE</td></tr>
+<tr><td>Save over a file</td><td>DATA_OVERWRITE → DATA_EXTEND → CLOSE (many programs write a temp file, then rename it over the original)</td></tr>
+<tr><td>Rename</td><td>RENAME_OLD_NAME → RENAME_NEW_NAME → CLOSE</td></tr>
+<tr><td>Move to another folder, same volume</td><td>RENAME_OLD_NAME → RENAME_NEW_NAME with a different parent reference</td></tr>
+<tr><td>Delete</td><td>FILE_DELETE | CLOSE (via the Recycle Bin: first a rename into $Recycle.Bin, the real delete comes when it is emptied)</td></tr>
+<tr><td>Download in a browser</td><td>Often a temporary name is created, renamed, then a NAMED_DATA_EXTEND adds Zone.Identifier</td></tr>
+<tr><td>Ransomware</td><td>Many files in seconds: DATA_OVERWRITE or DATA_TRUNCATION, then RENAME to a new extension</td></tr></table></div>
+<p>Windows ORs flags for the same file until it is closed, so one row can show several reasons at once.</p>
+<h3>Limits of the journal</h3>
+<ul class="l"><li>It is circular. $Max stores the maximum size and the allocation delta; the oldest records are overwritten first, so on a busy system it may cover only hours or days.</li>
+<li>Records hold only the file name and the parent reference, not the full path. Resolve paths with the MFT (MFTECmd <code>-m $MFT</code>) or the usnjrnl_rewind tool when the entry has been reused.</li>
+<li>$J is sparse: its logical size is huge, but only the tail holds data. Export it with a tool that handles sparse streams.</li>
+<li>Attackers can delete it with <code>fsutil usn deletejournal /D C:</code>. A fresh journal ID or a journal that starts suspiciously late is a clue.</li></ul>
+<h2>$LogFile in detail</h2>
+<p>$LogFile (entry 2) is a circular transaction log. Before NTFS changes metadata it writes <b>redo</b> data (how to apply the change) and <b>undo</b> data (how to reverse it). After a crash NTFS replays redo for finished transactions and runs undo for unfinished ones. That is why file systems survive power loss.</p>
+<ul class="l"><li>It begins with two restart pages (signature <code>RSTR</code>) followed by record pages (<code>RCRD</code>).</li>
+<li>Each log record has an <b>LSN</b> (log sequence number). The MFT header field “$LogFile sequence number” links a record to its last logged change.</li>
+<li>It is small (tens of MB) and overwritten quickly, so it holds minutes to hours of activity. Collect it early.</li>
+<li>Parse it with LogFileParser or NTFS Log Tracker; reading it by hand is rarely practical.</li></ul>
+<div class="card tw"><table><tr><th>Operation in the log</th><th>What it tells you</th></tr>
+<tr><td>InitializeFileRecordSegment</td><td>A new MFT record was created (file or folder created)</td></tr>
+<tr><td>DeallocateFileRecordSegment</td><td>A record was freed (file deleted)</td></tr>
+<tr><td>CreateAttribute / DeleteAttribute</td><td>An attribute (for example an ADS) was added or removed</td></tr>
+<tr><td>UpdateResidentValue</td><td>Resident data or a time value changed (useful for timestomping)</td></tr>
+<tr><td>AddIndexEntryRoot / Allocation</td><td>A name was added to a folder</td></tr>
+<tr><td>DeleteIndexEntryRoot / Allocation</td><td>A name was removed from a folder</td></tr>
+<tr><td>UpdateFileNameRoot / Allocation</td><td>The $FILE_NAME copy in an index changed</td></tr>
+<tr><td>Set / ClearBitsInNonresidentBitMap</td><td>Clusters were allocated or freed in $Bitmap</td></tr>
+<tr><td>CommitTransaction</td><td>The group of changes finished successfully</td></tr></table></div>
+<p class="mut">$LogFile shows low-level <i>how</i>; $UsnJrnl shows high-level <i>what</i>. Use both to confirm each other.</p>
+</section>
+
+<section data-t="8. $I30">
+<h2>Directory index entries ($I30)</h2>
+<p>Each directory keeps a B-tree index of its children in <code>$INDEX_ROOT</code>, <code>$INDEX_ALLOCATION</code> and <code>$BITMAP</code>, together called <b>$I30</b>. Each entry holds the file reference, and a copy of the $FILE_NAME attribute (name, size, timestamps).</p>
+<div class="card hex" id="hxi"></div>
+<div class="card info" id="ini">Click on any byte.</div>
+<div class="card"><b>Why slack matters</b>
+<p>When a file is deleted, renamed or moved, its entry is removed from the active index but is not wiped. The bytes can remain in the unused (slack) part of the index buffer, so you can see which files a folder used to contain even when the MFT record has been reused. MFTECmd marks such rows in the <code>From Slack</code> column; FTK Imager shows them with a red cross.</p></div>
+<div class="card tw"><table id="tbi"></table></div>
+<h2>The container: INDX record header</h2>
+<p>Small folders keep their entries inside $INDEX_ROOT in the MFT record. Larger folders use 4096-byte blocks in $INDEX_ALLOCATION, each starting with this header. The entry sample above would sit right after byte 0x40.</p>
+<div class="card hex" id="hxx"></div>
+<div class="card info" id="inx">Click on any byte.</div>
+<div class="card tw"><table id="tbx"></table></div>
+<h3>How the index is organised</h3>
+<ul class="l"><li>It is a <b>B-tree sorted by file name</b>, case-insensitive (the $UpCase table defines the comparison). $INDEX_ROOT records that the indexed attribute is $FILE_NAME (0x30), the block size (4096) and whether child blocks exist.</li>
+<li>Entry flag <b>0x01</b> means the entry has a child node (its VCN is stored in the last 8 bytes of the entry); <b>0x02</b> marks the last entry, which has no name and only ends the list.</li>
+<li>The entry’s key is a <b>copy of $FILE_NAME</b>, including the four times and sizes. The copy is written when the entry is created or rewritten, so it can differ from the file’s current record.</li>
+<li><b>Slack:</b> “index used size” in the node header (0xA0 in our sample) marks where live entries end. Bytes after it up to the end of the block are slack and can hold complete old entries. When a name is deleted or the tree is rebalanced, the entries shift and the old copies stay behind.</li></ul>
+<div class="card"><b>What $I30 can prove</b>
+<p>A file existed in a folder even after its MFT record was reused. Its former name after a rename. Its times and size as of the last index update. Hidden or system files that a folder listing does not show. Parse it with MFTECmd (<code>From Slack</code> column) or INDXParse.</p></div>
+</section>
+
+<section data-t="9. Deletion & recovery">
+<h2>What deleting a file really does</h2>
+<ol class="st"><li>The name entry is removed from the parent’s $I30 (a copy usually remains in slack).</li>
+<li>The MFT record’s in-use flag is cleared (0x01 → 0x00). Attributes, times and data runs are left as they were.</li>
+<li>The file’s clusters are cleared in $Bitmap, so they count as free.</li>
+<li>$UsnJrnl gets FILE_DELETE | CLOSE and $LogFile logs the transaction.</li>
+<li><b>The data clusters are not erased.</b> They stay until another file is written over them.</li></ol>
+<h2>Recycle Bin</h2>
+<p>A normal delete in Explorer does not delete anything yet. Windows moves the file to <code>C:\$Recycle.Bin\&lt;user SID&gt;\</code>, renaming it to <code>$R&lt;random&gt;.ext</code> (the content) and creating <code>$I&lt;same random&gt;.ext</code> (metadata). The SID in the folder name tells you <b>which user</b> deleted it. Shift+Delete or emptying the bin performs the real delete described above. This is a Windows 10 style $I file:</p>
+<div class="card hex" id="hxr"></div>
+<div class="card info" id="inr">Click on any byte.</div>
+<div class="card tw"><table id="tbr"></table></div>
+<h2>$Bitmap, bit by bit</h2>
+<p>$Bitmap holds one bit per cluster; 1 = allocated, 0 = free. The first byte covers clusters 0–7 and <b>bit 0 is the lowest cluster</b>. Edit the bytes to see the map.</p>
+<div class="card"><p>Bytes (hex): <input id="bmi" value="FF 0F 80 01" style="max-width:320px"></p><div class="cells" id="bmo"></div><p id="bms" class="mut"></p></div>
+<p>To check a deleted file, take each LCN from its data runs and see whether its bit is still 0. If it is, the content has probably not been reused. If it is 1, another file now owns that cluster.</p>
+<h2>Recovery situations</h2>
+<div class="card tw"><table><tr><th>Situation</th><th>What you can do</th></tr>
+<tr><td>Small file (resident)</td><td>Read the content straight from $DATA in the old MFT record. Only the record is needed.</td></tr>
+<tr><td>Non-resident, record intact, clusters still free</td><td>Decode the data runs and read the clusters: full recovery.</td></tr>
+<tr><td>Record intact, some clusters reused</td><td>Partial recovery; the reused clusters now belong to another file.</td></tr>
+<tr><td>Record reused by a new file</td><td>Metadata is gone. Use $I30 slack, $UsnJrnl, $LogFile and shadow copies, then carve.</td></tr>
+<tr><td>Fragmented file</td><td>The run list lists every fragment, so recovery works while the record exists; carving usually cannot rebuild fragments.</td></tr>
+<tr><td>SSD with TRIM</td><td>Freed clusters may be wiped soon after deletion, so chances drop quickly.</td></tr></table></div>
+<h3>Carving and shadow copies</h3>
+<p><b>Carving</b> searches unallocated space for known file headers (for example <code>%PDF</code>, or <code>FF D8 FF</code> for JPEG) and extracts bytes up to a footer or a length, without needing the MFT. <b>Volume Shadow Copies</b> keep older snapshots of the volume, including old MFTs and journals. List them with <code>vssadmin list shadows</code> and analyze them like separate images.</p>
+</section>
+
+<section data-t="10. Cases & glossary">
+<h2>Case A: data theft followed by deletion</h2>
+<ol class="st"><li>MFT: filter In Use = False and extension .xlsx. Find the record for the file and note its entry and sequence numbers.</li>
+<li>$UsnJrnl: search the name. Build the sequence (create → rename → delete) and note the times.</li>
+<li>Recycle Bin: look for matching $I files in <code>$Recycle.Bin</code>. The deletion time and the user SID identify who deleted it.</li>
+<li>$I30: confirm the name survives in the folder index slack.</li>
+<li>Content: if resident, read it from the record; otherwise use the data runs and check $Bitmap.</li></ol>
+<h2>Case B: malware dropped and timestomped</h2>
+<ol class="st"><li>MFT: list executables in temp and user folders. Compare Created0x10 and Created0x30 and flag every file where the $SI time is earlier.</li>
+<li>Check sub-second ticks of the suspicious times; whole seconds support the forgery theory.</li>
+<li>Look for a Zone.Identifier stream to find the download URL.</li>
+<li>$UsnJrnl: the real creation time appears as FILE_CREATE, regardless of what $SI says.</li>
+<li>Corroborate with Prefetch, Amcache and event logs, then build the timeline from the trustworthy times.</li></ol>
+<h2>Case C: hidden data in an alternate stream</h2>
+<ol class="st"><li>In MFTECmd output look at rows where the record has more than one $DATA attribute.</li>
+<li>List the stream names with <code>dir /r</code> and extract them with FTK Imager (they appear as file:stream).</li>
+<li>$UsnJrnl: look for NAMED_DATA_EXTEND and NAMED_DATA_OVERWRITE on that file to see when the stream was written.</li></ol>
+<h2>Anti-forensics and how it shows</h2>
+<div class="card tw"><table><tr><th>Technique</th><th>Traces that remain</th></tr>
+<tr><td>Timestomping</td><td>$SI vs $FN mismatch, zero sub-seconds, journal and $LogFile entries</td></tr>
+<tr><td>Secure-delete tools that rename before deleting</td><td>Many renames in $UsnJrnl and $I30 slack with random names</td></tr>
+<tr><td>Deleting the USN journal</td><td>New journal ID, journal starts late, $LogFile entries about the change</td></tr>
+<tr><td>Wiping free space</td><td>Large DATA_EXTEND bursts, a file filling the disk, then deleted</td></tr>
+<tr><td>Hiding data in ADS or fake bad clusters</td><td>Extra $DATA attributes, entries in $BadClus that are not real</td></tr>
+<tr><td>Reusing MFT records</td><td>Higher sequence numbers, old references in $UsnJrnl and $I30 slack</td></tr></table></div>
+<h2>Glossary</h2>
+<div class="card tw"><table><tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>ACL</td><td>Access control list: who may do what with a file</td></tr>
+<tr><td>B-tree</td><td>Sorted tree structure used for folder indexes</td></tr>
+<tr><td>Carving</td><td>Recovering files by signature, without file system metadata</td></tr>
+<tr><td>Collation</td><td>The rule used to sort index entries</td></tr>
+<tr><td>EFS</td><td>Encrypting File System, per-file encryption</td></tr>
+<tr><td>Fixup</td><td>Check value placed at the end of each sector in a record</td></tr>
+<tr><td>LSN / USN</td><td>Log sequence number ($LogFile) / update sequence number (journal)</td></tr>
+<tr><td>Orphan file</td><td>A file whose parent folder record no longer exists</td></tr>
+<tr><td>Reparse point</td><td>A file or folder that redirects to something else (symlink, junction)</td></tr>
+<tr><td>Sparse file</td><td>A file with unallocated holes that read as zeros</td></tr>
+<tr><td>Timestomping</td><td>Deliberately changing timestamps to hide activity</td></tr></table></div>
+</section>
+<script>
+const $=id=>document.getElementById(id),hx=n=>n.toString(16).toUpperCase().padStart(2,'0');
+const le=(v,l)=>{v=BigInt(v);const r=[];for(let i=0;i<l;i++)r.push(Number((v>>BigInt(8*i))&255n));return r};
+const ftv=s=>BigInt(Date.parse(s+'Z')+11644473600000)*10000n;
+const ftd=v=>new Date(Number(v/10000n)-11644473600000).toISOString().replace('T',' ').slice(0,19)+' UTC';
+function mk(){const o={b:[],f:[]};
+o.add=(n,d,by,v)=>{o.f.push({o:o.b.length,l:by.length,n,d,by,v});o.b.push(...by);return o};
+o.u=(n,d,l,v,m)=>o.add(n,d,le(v,l),typeof m==='function'?m(BigInt(v)):m==='h'?'0x'+BigInt(v).toString(16).toUpperCase().padStart(l*2,'0'):m==='t'?ftd(BigInt(v)):String(v));
+o.t=(n,d,iso)=>o.u(n,d,8,ftv(iso),'t');
+o.s=(n,d,s)=>{const by=[];for(const c of s)by.push(c.charCodeAt(0),0);return o.add(n,d,by,'“'+s+'” (UTF-16LE)')};
+o.a=(n,d,s)=>o.add(n,d,[...s].map(c=>c.charCodeAt(0)),'“'+s+'”');
+o.z=(n,d,l)=>o.add(n,d,Array(l).fill(0),'zeros');
+o.r=(n,d,e,q)=>o.add(n,d,le(BigInt(e)|(BigInt(q)<<48n),8),'MFT entry '+e+', sequence '+q);
+return o}
+function show(k,o){const H=$('hx'+k),I=$('in'+k),T=$('tb'+k),fi=[];
+o.f.forEach((f,i)=>{for(let j=0;j<f.l;j++)fi[f.o+j]=i});
+let h='';for(let r=0;r<o.b.length;r+=16){h+='<span class="off">'+r.toString(16).toUpperCase().padStart(4,'0')+'</span>';let a='';const e=Math.min(r+16,o.b.length);
+for(let j=r;j<e;j++){const c=o.b[j];h+='<span class="b" data-i="'+fi[j]+'" style="background:var(--c'+(fi[j]%6)+')">'+hx(c)+'</span>';a+=c>31&&c<127?String.fromCharCode(c).replace('&','&amp;').replace('<','&lt;'):'.'}
+for(let j=e-r;j<16;j++)h+='<span class="b">  </span>';h+='<span class="asc">'+a+'</span>\n'}
+H.innerHTML=h;
+T.innerHTML='<tr><th>Offset</th><th>Size</th><th>Field</th><th>Value</th></tr>'+o.f.map((f,i)=>'<tr class="f" data-i="'+i+'"><td><span class="sw" style="background:var(--c'+(i%6)+')"></span>0x'+f.o.toString(16).toUpperCase()+'</td><td>'+f.l+'</td><td>'+f.n+'</td><td>'+f.v+'</td></tr>').join('');
+const pick=i=>{const f=o.f[i];document.querySelectorAll('#hx'+k+' .b,#tb'+k+' tr').forEach(x=>x.classList.toggle('sel',x.dataset.i==i));
+I.innerHTML='<b>'+f.n+'</b><br>Offset 0x'+f.o.toString(16).toUpperCase()+' ('+f.o+') · '+f.l+' byte(s) · <code>'+f.by.map(hx).join(' ')+'</code><br>Value: '+f.v+'<br><span class="mut">'+f.d+'</span>'};
+[H,T].forEach(x=>x.addEventListener('click',e=>{const t=e.target.closest('[data-i]');if(t&&t.dataset.i!=='undefined')pick(+t.dataset.i)}))}
+function bar(id,a){$(id).innerHTML=a.map((x,i)=>'<div style="flex:'+x[1]+';background:var(--c'+(i%6)+')">'+x[0]+'</div>').join('')}
+
+const T1='2026-11-02T22:41:07',T0='2021-03-05T10:00:00',T2='2026-11-02T22:44:51',T3='2026-11-02T22:47:30',NM='salary.xlsx';
+const FN=(o,t)=>o.r('Parent directory reference','MFT reference of the containing folder (48-bit entry + 16-bit sequence).',42,1)
+.t('Created ($FN)','Creation time stored in $FILE_NAME.',t).t('Modified ($FN)','Content modification time.',t).t('MFT changed ($FN)','Record change time.',t).t('Accessed ($FN)','Last access time.',t)
+.u('Allocated size','Often 0 for small resident files; trust $DATA instead.',8,0).u('Real size','Often 0 for small resident files.',8,0)
+.u('File flags','0x20 = archive.',4,0x20,'h').u('Reparse / EA value','Used by reparse points and extended attributes.',4,0)
+.u('Name length (characters)','Number of UTF-16 characters in the name.',1,NM.length).u('Namespace','0 POSIX, 1 Win32, 2 DOS, 3 Win32+DOS.',1,1).s('File name','The name of the file.',NM);
+const AH=(o,nm,ty,len,cl,ix,id)=>o.u(nm+': type','Attribute type ID.',4,ty,'h').u('Attribute length','Total bytes of this attribute, header included.',4,len)
+.u('Non-resident flag','0 = content stored inside the MFT record (resident).',1,0).u('Name length','0 = unnamed (default stream).',1,0).u('Name offset','Offset of the attribute name.',2,0x18,'h')
+.u('Attribute flags','Compressed / encrypted / sparse bits.',2,0,'h').u('Attribute ID','Unique inside this record.',2,id).u('Content length','Size of the content in bytes.',4,cl)
+.u('Content offset','Where the content starts, from the attribute start.',2,0x18,'h').u('Indexed flag + padding','1 for $FILE_NAME (indexed in the parent folder).',2,ix);
+
+const B=mk();
+B.add('Jump instruction','Jumps over the BPB to the bootstrap code. EB 52 90 on NTFS.',[0xEB,0x52,0x90],'JMP').a('OEM ID','Tools check for “NTFS” plus 4 spaces to confirm an NTFS volume.','NTFS    ')
+.u('Bytes per sector','Sector size.',2,512).u('Sectors per cluster','Cluster = 8 × 512 = 4096 bytes.',1,8).z('Reserved sectors','Always 0 on NTFS.',2).z('Unused','Legacy FAT fields.',3).z('Unused','Legacy FAT fields.',2)
+.u('Media descriptor','0xF8 = fixed disk.',1,0xF8,'h').z('Unused','Legacy.',2).u('Sectors per track','CHS geometry (legacy).',2,63).u('Number of heads','CHS geometry (legacy).',2,255)
+.u('Hidden sectors','Sectors before the partition; 2048 = 1 MiB alignment.',4,2048).z('Unused','Legacy.',4).add('Unused (signature)','Usually 80 00 80 00.',[0x80,0,0x80,0],'—')
+.u('Total sectors','Sectors in the volume minus one (about 50 GiB here).',8,104857599).u('$MFT start cluster (LCN)','Where the $MFT begins, counted in clusters.',8,786432).u('$MFTMirr start cluster','Where the MFT mirror begins.',8,2)
+.add('Clusters per MFT record','A negative value n means 2^|n| bytes: 0xF6 = −10 → 1024 bytes.',[0xF6],'−10 → 1024 bytes').z('Unused','Padding.',3).u('Clusters per index buffer','1 cluster = 4096 bytes per $I30 buffer.',1,1).z('Unused','Padding.',3)
+.add('Volume serial number','Unique volume ID.',[0x1E,0x5C,0x8A,0x3D,0x9B,0x2F,0x41,0xA7],'sample').u('Checksum','Not used by modern Windows.',4,0);
+show('b',B);
+$('calc').innerHTML='<b>Derived values</b><p>Bytes per cluster = 512 × 8 = <b>4096</b><br>$MFT byte offset = 786432 × 4096 = <b>'+(786432*4096).toLocaleString('en-US')+'</b> (0xC0000000)<br>MFT record size = 2^10 = <b>1024 bytes</b></p><p class="mut">This is how a tool finds the first MFT record from the boot sector alone.</p>';
+
+const M=mk();
+M.a('Signature','“FILE” marks a valid record; “BAAD” marks a damaged one.','FILE').u('Fixup offset','Start of the update sequence array.',2,0x30,'h').u('Fixup entry count','1 check value + 1 per 512-byte sector = 3.',2,3)
+.u('$LogFile sequence number','LSN of the last journal change to this record.',8,0x1A2B3C,'h').u('Sequence number','Incremented every time the record is reused. With the entry number it forms the file reference.',2,2)
+.u('Hard link count','Number of names pointing to the file.',2,1).u('First attribute offset','Attributes start here.',2,0x38,'h')
+.u('Flags','0x01 in use, 0x02 directory. 0x0001 = file in use; a deleted file shows 0x0000.',2,1,'h').u('Used size','Bytes used inside the record.',4,0x138,'h').u('Allocated size','Full record size.',4,1024)
+.u('Base record reference','0 = this is a base record.',8,0).u('Next attribute ID','ID the next new attribute will get.',2,3).z('Padding','Alignment.',2).u('MFT record number','Entry number of this record.',4,419)
+.add('Update sequence number + array','Check value and the original last 2 bytes of each sector (zeros here).',[3,0,0,0,0,0],'USN = 0x0003').z('Padding','Aligns attributes to 8 bytes.',2);
+AH(M,'$STANDARD_INFORMATION',0x10,0x60,72,0,0)
+.t('Created ($SI)','What Explorer shows as Date created.',T0).t('Modified ($SI)','Content modified time.',T0).t('MFT changed ($SI)','Record changed time.',T2).t('Accessed ($SI)','Last access time.',T0)
+.u('File attribute flags','Bit mask. 0x20 = Archive. See the flags table and decoder in this tab.',4,0x20,'h').u('Max versions','Rarely used.',4,0).u('Version number','Rarely used.',4,0).u('Class ID','Rarely used.',4,0)
+.u('Owner ID','Quota owner.',4,0).u('Security ID','Index into $Secure.',4,0x101,'h').u('Quota charged','Quota tracking.',8,0).u('Update sequence number (USN)','Last USN journal entry of this file.',8,1234567890);
+AH(M,'$FILE_NAME',0x30,0x70,88,1,1);FN(M,T1);
+AH(M,'$DATA',0x80,0x28,16,0,2).a('Resident content','The file’s actual bytes, stored inside the MFT record.','Q3 payroll draft');
+M.add('End-of-attributes marker','FF FF FF FF ends the attribute list.',[255,255,255,255],'end').z('Padding','Fills the record to the used size.',4);
+show('m',M);
+bar('bar1',[['Header',56],['$STANDARD_INFO',96],['$FILE_NAME',112],['$DATA',40],['End',8]]);
+bar('bar0',[['$Boot',60],['$MFT + metafiles',140],['File data area',300],['$MFTMirr',70]]);
+$('fl').oninput=()=>{const v=parseInt($('fl').value,16);$('flo').textContent=isNaN(v)?'Enter hex, e.g. 0001':(v&1?'In use':'Not in use (deleted)')+' · '+(v&2?'directory':'file')};$('fl').oninput();
+const SF=[[1,'Read only'],[2,'Hidden'],[4,'System'],[32,'Archive'],[64,'Device'],[128,'Normal'],[256,'Temporary'],[512,'Sparse file'],[1024,'Reparse point'],[2048,'Compressed'],[4096,'Offline'],[8192,'Content is not being indexed for faster searches'],[16384,'Encrypted']];
+$('sfc').innerHTML=SF.map(f=>'<label style="display:inline-block;margin:2px 12px 2px 0"><input type="checkbox" data-b="'+f[0]+'" style="width:auto"> '+f[1]+'</label>').join('');
+$('sf').oninput=()=>{const t=$('sf').value.replace(/^0x/i,'');if(!/^[0-9a-f]{1,8}$/i.test(t)){$('sfo').textContent='Enter up to 8 hex digits, e.g. 00000020.';return}
+const v=parseInt(t,16),l=SF.filter(f=>v&f[0]).map(f=>'0x'+f[0].toString(16).toUpperCase().padStart(4,'0')+' → '+f[1]),un=(v&~SF.reduce((a,f)=>a|f[0],0))>>>0;
+document.querySelectorAll('#sfc input').forEach(c=>c.checked=!!(v&c.dataset.b));
+$('sfo').innerHTML=(l.length?l.join('<br>'):'No known flags set.')+(un?'<br><span class="mut">Unknown bits: 0x'+un.toString(16).toUpperCase()+'</span>':'')};
+$('sfc').onchange=e=>{let v=parseInt($('sf').value.replace(/^0x/i,''),16)||0;const b=+e.target.dataset.b;v=e.target.checked?(v|b):(v&~b);$('sf').value=(v>>>0).toString(16).toUpperCase().padStart(8,'0');$('sf').oninput()};
+$('sf').oninput();
+
+const sIso=[T0,T0,T2,T0],fIso=[T1,T1,T1,T1],nm=['Created (B)','Modified (M)','MFT changed (C)','Accessed (A)'];
+$('cmp').innerHTML='<tr><th>Time</th><th>$STANDARD_INFORMATION</th><th>$FILE_NAME</th></tr>'+nm.map((n,i)=>'<tr><td>'+n+'</td><td>'+sIso[i].replace('T',' ')+' UTC</td><td>'+fIso[i].replace('T',' ')+' UTC</td></tr>').join('');
+$('verdict').innerHTML=new Date(T0)<new Date(T1)?'<span class="bad">Suspicious:</span> $SI says the file was created in 2021, but $FN says 2026-11-02. A file cannot be older than its own name record, so this points to timestomping.':'<span class="ok">No mismatch.</span>';
+const fbI=$('fb'),fdI=$('fd');const bs=le(ftv(T0),8);fbI.value=bs.map(hx).join(' ');fdI.value=T0.replace('T',' ');
+fbI.oninput=()=>{const p=fbI.value.replace(/[^0-9a-f]/gi,'').match(/../g);if(p&&p.length==8){try{fdI.value=ftd(BigInt('0x'+p.reverse().join(''))).replace(' UTC','')}catch(e){}}};
+fdI.oninput=()=>{const t=Date.parse(fdI.value.trim().replace(' ','T')+'Z');if(!isNaN(t))fbI.value=le(ftv(new Date(t).toISOString().slice(0,19)),8).map(hx).join(' ')};
+
+const RS={1:'DATA_OVERWRITE',2:'DATA_EXTEND',4:'DATA_TRUNCATION',16:'NAMED_DATA_OVERWRITE',32:'NAMED_DATA_EXTEND',64:'NAMED_DATA_TRUNCATION',256:'FILE_CREATE',512:'FILE_DELETE',1024:'EA_CHANGE',2048:'SECURITY_CHANGE',4096:'RENAME_OLD_NAME',8192:'RENAME_NEW_NAME',16384:'INDEXABLE_CHANGE',32768:'BASIC_INFO_CHANGE',65536:'HARD_LINK_CHANGE',131072:'COMPRESSION_CHANGE',262144:'ENCRYPTION_CHANGE',524288:'OBJECT_ID_CHANGE',1048576:'REPARSE_POINT_CHANGE',2097152:'STREAM_CHANGE',2147483648:'CLOSE'};
+const dr=v=>Object.keys(RS).filter(k=>(v&BigInt(k))!==0n).map(k=>'USN_REASON_'+RS[k]);
+const U=mk();
+U.u('Record length','Total bytes of this record (8-byte aligned).',4,88).u('Major version','2 = USN_RECORD_V2.',2,2).u('Minor version','Always 0 for V2.',2,0)
+.r('File reference number','Which file changed (MFT entry + sequence).',419,2).r('Parent file reference number','The folder that contains it.',42,1)
+.u('USN','Position of this record in the journal.',8,1234567890).t('Timestamp','When the change happened.',T3)
+.u('Reason','Bit flags describing what changed. 0x200 FILE_DELETE + 0x80000000 CLOSE.',4,0x80000200,v=>dr(v).join(' | ')).u('Source info','0 = a normal user or app change.',4,0)
+.u('Security ID','Security descriptor ID.',4,0).u('File attributes','0x20 = archive.',4,0x20,'h').u('File name length','Bytes, not characters.',2,22).u('File name offset','From the record start.',2,60)
+.s('File name','Name of the file at the time of the change.',NM).z('Padding','Aligns the record to 8 bytes.',6);
+show('u',U);
+$('rs').oninput=()=>{const t=$('rs').value.replace(/^0x/i,'');if(!/^[0-9a-f]{1,8}$/i.test(t)){$('rso').textContent='Enter up to 8 hex digits.';return}const l=dr(BigInt('0x'+t));$('rso').innerHTML=l.length?l.join('<br>'):'No known flags.'};$('rs').oninput();
+
+const I=mk();
+I.r('File reference','The file this entry points to.',419,2).u('Entry length','Total bytes of this index entry.',2,104).u('Key length','Size of the $FILE_NAME key.',2,88)
+.u('Entry flags','0x01 has a sub-node, 0x02 last entry.',2,0).z('Padding','Alignment.',2);FN(I,T1);
+show('i',I);
+
+const NR=mk();
+NR.u('Attribute type','0x80 = $DATA.',4,0x80,'h').u('Attribute length','Header (0x40) + run list (8) = 72 bytes.',4,72).u('Non-resident flag','1 = content lives in clusters outside the record.',1,1).u('Name length','0 = unnamed main stream.',1,0).u('Name offset','Points to the end of the header when there is no name.',2,0x40,'h').u('Attribute flags','0x0001 compressed, 0x4000 encrypted, 0x8000 sparse.',2,0,'h').u('Attribute ID','Unique inside the record.',2,2)
+.u('Starting VCN','First virtual cluster described by this attribute.',8,0).u('Last VCN','8 clusters = VCN 0 to 7.',8,7).u('Data run offset','Where the run list starts.',2,0x40,'h').u('Compression unit size','0 = not compressed.',2,0).z('Padding','Alignment.',4)
+.u('Allocated size','8 clusters × 4096 bytes.',8,32768).u('Real size','The logical size that Explorer shows.',8,30517).u('Initialized size','Bytes actually written so far.',8,30517)
+.add('Data run 1','0x21: high nibble 2 = 2 offset bytes, low nibble 1 = 1 length byte. Length 5 clusters, start LCN 0x2010 = 8208.',[0x21,5,0x10,0x20],'5 clusters at LCN 8208')
+.add('Data run 2','0x11: 1 length byte (3) and 1 offset byte 0xF0 = −16, relative to the previous run, so LCN 8192, 3 clusters.',[0x11,3,0xF0],'3 clusters at LCN 8192').add('End of run list','A header byte of 0 ends the list.',[0],'end');
+show('n',NR);
+function runs(){const p=($('dr').value.replace(/[^0-9a-f]/gi,'').match(/../g)||[]).map(x=>parseInt(x,16));let i=0,lcn=0,vcn=0,out=[];
+while(i<p.length&&p[i]!==0){const h=p[i++],ln=h&15,on=h>>4;let len=0,off=0;for(let k=0;k<ln;k++)len+=p[i+k]*2**(8*k);i+=ln;
+if(on){for(let k=0;k<on;k++)off+=p[i+k]*2**(8*k);if(p[i+on-1]>=128)off-=2**(8*on);i+=on;lcn+=off;out.push('VCN '+vcn+'–'+(vcn+len-1)+' → LCN '+lcn+'–'+(lcn+len-1)+' ('+len+' clusters, byte offset '+(lcn*4096).toLocaleString('en-US')+')')}
+else out.push('VCN '+vcn+'–'+(vcn+len-1)+' → sparse (no clusters, reads as zeros)');vcn+=len}
+$('dro').innerHTML=out.length?out.map((x,j)=>'Run '+(j+1)+': '+x).join('<br>'):'Enter a run list, e.g. 21 05 10 20 00'}
+$('dr').oninput=runs;runs();
+const X=mk();
+X.a('Signature','“INDX” marks an index buffer, one per 4096-byte block of $INDEX_ALLOCATION.','INDX').u('Fixup offset','Start of the update sequence array.',2,0x28,'h').u('Fixup entry count','1 check value + 8 sectors.',2,9)
+.u('$LogFile sequence number','LSN of the last change to this block.',8,0x1B3C4D,'h').u('VCN of this block','Position of the block inside $INDEX_ALLOCATION.',8,0)
+.u('Offset to first entry','Relative to the node header at 0x18.',4,0x28,'h').u('Index used size','Bytes of live entries, relative to 0x18. Everything after it is slack.',4,0xA0,'h').u('Index allocated size','Total room in the node, relative to 0x18.',4,0xFE8,'h')
+.u('Node flags','0 = leaf node, 1 = has child nodes.',1,0).z('Padding','Alignment.',3).u('Update sequence number','Check value that replaces the last 2 bytes of each sector on disk.',2,5)
+.z('Saved sector-end bytes','Original last 2 bytes of the 8 sectors.',16).z('Padding','Aligns the first entry to 8 bytes.',6);
+show('x',X);
+const RB=mk(),PTH='C:\\Users\\Ravi\\salary.xlsx';
+RB.u('Version','2 = Windows 10 and later; 1 = Vista to 8.1.',8,2).u('Original file size','Size in bytes of the deleted file.',8,22308).t('Deletion time','When the file was sent to the Recycle Bin (UTC).',T3)
+.u('Path length','Characters including the terminating null (version 2).',4,PTH.length+1).s('Original path','Where the file lived before deletion.',PTH).z('Terminating null','End of the string.',2);
+show('r',RB);
+function bm(){const p=($('bmi').value.replace(/[^0-9a-f]/gi,'').match(/../g)||[]).map(x=>parseInt(x,16));let h='',u=0;
+p.forEach((b,i)=>{for(let k=0;k<8;k++){const s=(b>>k)&1;u+=s;h+='<span class="'+(s?'u1':'')+'" title="cluster '+(i*8+k)+'">'+(i*8+k)+'</span>'}h+='<span class="gap"></span>'});
+$('bmo').innerHTML=h;$('bms').textContent=p.length*8+' clusters shown · '+u+' allocated (filled) · '+(p.length*8-u)+' free'}
+$('bmi').oninput=bm;bm();
+$('sb').oninput=()=>{const p=$('sb').value.replace(/[^0-9a-f]/gi,'').match(/../g);if(!p||p.length!=8){$('sbo').textContent='Enter 8 bytes.';return}const v=BigInt('0x'+p.reverse().join('')),f=v%10000000n;$('sbo').innerHTML=ftd(v)+' · sub-second ticks: <b>'+f+'</b> '+(f===0n?'<span class="bad">exactly zero: common in forged times</span>':'<span class="ok">non-zero: looks natural</span>')};
+$('sb').value=bs.map(hx).join(' ');$('sb').oninput();
+const secs=[...document.querySelectorAll('section')],nav=$('nav');
+secs.forEach((s,i)=>{const b=document.createElement('button');b.textContent=s.dataset.t;b.onclick=()=>go(i);nav.append(b)});
+function go(i){secs.forEach((s,j)=>s.classList.toggle('on',i==j));[...nav.children].forEach((b,j)=>b.classList.toggle('on',i==j));scrollTo(0,0)}
+go(0);
+document.querySelector('#wm div').innerHTML=Array(420).fill('<span>Created by Bhavya Jain</span>').join('');
+</script></main></body></html>
